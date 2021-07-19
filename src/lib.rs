@@ -5,9 +5,8 @@ use near_sdk::{env, near_bindgen, AccountId, Balance, Promise, StorageUsage};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize,Serialize};
 use std::collections::HashMap;
-use timer::Timer;
 const MINT_FEE:Balance=1_000_000_000_000_000_000_000_000;
-const CREATE_AUCTION_FEE:Balance=5_000_000_000_000_000_000;
+const CREATE_AUCTION_FEE:Balance=5_000_000_000_000_000_000_000_000;
 const AUCTION_FEE :f32 = 0.0005;
 type TokenId = u32;
 type AuctionId = u32;
@@ -91,14 +90,26 @@ impl Contract{
             is_enabled:false,
             is_end:false,
             participants: HashMap::new(),
+            winner: AccountId::new()
         };
         self.auction_by_id.insert(&self.auction_id,&auction);
         self.token_id_auctioned.push(_token_id);
         auction
     }
+    pub fn start_auction(&self,_aution_id:AuctionId){
+        assert_eq!(env::predecessor_account_id(),self.auction_by_id.get(&_aution_id).unwrap().owner_id,"You Do Not Own This Auction");
+        assert_eq!(self.auction_by_id.get(&_aution_id).unwrap().is_end,false,"This Auction Already Ends");
+        assert_eq!(self.auction_by_id.get(&_aution_id).unwrap().is_enabled,false,"This Auction Already Begins");
+        let auction = self.auction_by_id.get(&_aution_id).unwrap();
+        
+          
+    }
     pub fn close_auction(&mut self,_aution_id:AuctionId){
+        assert_eq!(env::predecessor_account_id(),self.auction_by_id.get(&_aution_id).unwrap().owner_id,"You Do Not Own This Auction");
         self.auction_by_id.get(&_aution_id).unwrap().is_enabled=false;
         self.auction_by_id.get(&_aution_id).unwrap().is_end=true;
+        let _token_id = self.auction_by_id.get(&_aution_id).unwrap().id_token_auction;
+        self.token_id_auctioned.retain(|&x| x != _token_id );
     }
     fn is_auctione_owner_exist(&self, _owner_id:AccountId) -> bool{
         for owner_id in self.auction_id_by_owner.keys()
@@ -172,7 +183,8 @@ pub struct Auction{
     token_auction: Token,
     is_enabled: bool,
     is_end:bool,
-    participants: HashMap<AccountId,Price>
+    participants: HashMap<AccountId,Price>, 
+    winner: AccountId
 }
 #[cfg(test)]
 mod tests {
