@@ -1,0 +1,1 @@
+near deploy --wasmFile res/contract.wasm --accountId $ID
