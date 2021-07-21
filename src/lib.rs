@@ -1,18 +1,19 @@
 use near_sdk::*;
 use near_sdk::collections::*;
-use near_sdk::json_types::{ValidAccountId,Base64VecU8};
+use near_sdk::json_types::ValidAccountId;
 use near_sdk::{env, near_bindgen, AccountId, Balance, Promise};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::serde::{Deserialize,Serialize};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 const TRANSFER_FEE:Balance=1_000_000_000_000_000_000_000;
 const MINT_FEE:Balance=1_000_000_000_000_000_000_000_000;
 const CREATE_AUCTION_FEE:Balance=5_000_000_000_000_000_000_000_000;
-const AUCTION_FEE :Balance = 5;
+use auction::Auction;
+use nft::{Token,TokenData};
+mod auction;
+mod nft;
 type TokenId = u32;
 type AuctionId = u32;
-type Price = Balance;
 #[near_bindgen]
 #[derive(BorshSerialize,BorshDeserialize,PanicOnDefault)]
 pub struct Contract{
@@ -30,9 +31,9 @@ pub struct Contract{
 #[near_bindgen]
 impl Contract{
     #[init]
-    pub fn new(owner_id:AccountId)->Self{
+    pub fn new(_owner_id:AccountId)->Self{
         Self{
-            owner_id,
+            owner_id:_owner_id,
             token_id:0,
             auction_id:0,
             auction_by_id:UnorderedMap::new(b"auction_by_id".to_vec()),
@@ -111,6 +112,7 @@ impl Contract{
         auction
     }
     fn commit_nft(&mut self,_token_id:&TokenId){
+
         let mut token = self.token_by_id.get(&_token_id).unwrap();
         token.authorized_id = self.owner_id.clone();
         self.token_by_id.insert(&self.token_id,&token);
@@ -140,9 +142,11 @@ impl Contract{
     }
     #[payable]
     pub fn commit_auction(&mut self, _auction_id:AuctionId){
+        let mut auction = self.auction_by_id.get(&_auction_id).unwrap();
+        assert!(env::attached_deposit()>0,"You Can Not Commit 0N");
         assert_eq!(self.auction_by_id.get(&_auction_id).unwrap().is_end,false,"This Auction Alredy Ends");
         assert_eq!(self.auction_by_id.get(&_auction_id).unwrap().is_enabled,true,"This Auction Does Not Begin");
-        let mut auction = self.auction_by_id.get(&_auction_id).unwrap();
+        assert!(auction.participants.contains_key(&env::predecessor_account_id()),"You Have Already Commited");
         auction.participants.insert(env::predecessor_account_id(),env::attached_deposit());
         self.auction_by_id.insert(&_auction_id, &auction);
     }
@@ -250,61 +254,9 @@ impl Contract{
 }
 
 
-#[derive(BorshDeserialize,BorshSerialize,Serialize, Deserialize,Clone)]
-#[serde(crate = "near_sdk::serde")]
-pub struct Token{
-    owner_id:AccountId,
-    authorized_id:AccountId,
-    token_id:TokenId,
-    tokendata:TokenData
-}
-impl Token {
-    pub fn transfer(&mut self,_new_owner_id:ValidAccountId){
-        self.owner_id = _new_owner_id.into();
-    }
-    
-}
-#[derive(BorshDeserialize,BorshSerialize,Serialize, Deserialize,Clone)]
-#[serde(crate = "near_sdk::serde")]
-pub struct TokenData{
-    pub title: Option<String>,
-    pub description: Option<String>,
-    secret: Option<String>,
-    pub secret_hash: Option<Base64VecU8>,
-}
-#[derive(BorshDeserialize,BorshSerialize,Serialize, Deserialize,Clone)]
-#[serde(crate = "near_sdk::serde")]
-pub struct Auction{
-    owner_id:AccountId,
-    auction_id:AuctionId,
-    auction_start_time: u64,
-    auction_during_second:u64,
-    id_token_auction: TokenId,
-    token_auction: Token,
-    is_enabled: bool,
-    is_end:bool,
-    participants: HashMap<AccountId,Price>, 
-    winner: AccountId
-}
-impl Auction {
-    pub fn calculate_the_single_lowest(&self) -> Price{
-        
-        let mut prices:Vec<&Price> = self.participants.values().collect();
-        prices.sort();
-        if prices.len()==1 {return prices[0].clone();}
-        else if prices[0]!=prices[1] {return prices[0].clone();}
-        for i in 1..(prices.len() -2)  {
-             if prices[i]!=prices[i-1]&&prices[i]!=prices[i+1] {return prices[i].clone();}
-        }
-        if prices[prices.len()]!=prices[prices.len()-1] {return prices[prices.len()].clone();}
-        else {return 0;}
-    }
-    pub fn find_winner(&mut self,price:Price){
-        let winner = self.participants.iter().find_map(|(key, &val)| if val == price { Some(key.clone()) } else { None }).unwrap();
-        self.winner = winner;
-        
-    }
-}
+
+
+
 #[cfg(test)]
 mod tests {
     #[test]
