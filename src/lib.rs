@@ -185,7 +185,7 @@ impl Contract{
     }
     fn transfer_ft_to_seller(&self,_owner_id:ValidAccountId,_auction_price:Balance){
         let account = Promise::new(_owner_id.into());
-        account.transfer(_auction_price*(1000 -AUCTION_FEE)/1000);
+        account.transfer(_auction_price);
     }
     pub fn close_auction(&mut self,_auction_id:AuctionId){
         if env::predecessor_account_id()!=self.owner_id&&env::predecessor_account_id()!=self.auction_by_id.get(&_auction_id).unwrap().owner_id{
