@@ -19,7 +19,7 @@ A contract allow user to mint NFT and hold an auction, the winner is the one wit
   </br>
  <h4>Init contract:</h4>
  </br>
-  <code>near call $ID new '{"owner_id":"'$ID'"}' --accountId $ID</code>
+  <code>near call $ID new '{"_owner_id":"'$ID'"}' --accountId $ID</code>
   </br>
  <h4>You can use another account to mint nft, mint fee is 1N:</h4>
  </br>
