@@ -2,11 +2,12 @@ use near_sdk::{AccountId, Balance};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize,Serialize};
 use std::collections::HashMap;
+use std::vec::Vec;
 use crate::*;
 type TokenId = u32;
 type AuctionId = u32;
-type Price = Balance;
-#[derive(BorshDeserialize,BorshSerialize,Serialize, Deserialize,Clone)]
+pub type Price = Balance;
+#[derive(Debug,BorshDeserialize,BorshSerialize,Serialize, Deserialize,Clone)]
 #[serde(crate = "near_sdk::serde")]
 pub struct Auction{
     pub owner_id:AccountId,
@@ -18,20 +19,48 @@ pub struct Auction{
     pub is_enabled: bool,
     pub is_end:bool,
     pub participants: HashMap<AccountId,Price>, 
-    pub winner: AccountId
+    pub winner: AccountId,
+    pub close_price: Balance
 }
 impl Auction {
-    pub fn calculate_the_single_lowest(&self) -> Price{
-        
+    pub fn calculate_the_single_lowest(&mut self) -> Price{
+        let  mut price:Price = 0;
         let mut prices:Vec<&Price> = self.participants.values().collect();
         prices.sort();
-        if prices.len()==1 {return prices[0].clone();}
-        else if prices[0]!=prices[1] {return prices[0].clone();}
-        for i in 1..(prices.len() -2)  {
-             if prices[i]!=prices[i-1]&&prices[i]!=prices[i+1] {return prices[i].clone();}
-        }
-        if prices[prices.len()]!=prices[prices.len()-1] {return prices[prices.len()].clone();}
-        else {return 0;}
+        if prices.len()==1
+            {
+                price = prices[0].clone();
+            }
+        else if prices[0]!=prices[1] 
+            {
+                price = prices[0].clone();
+            }
+        else
+            {
+                for i in 1..(prices.len() -1)  
+                    {
+                        if i< (prices.len() -1)
+                            {
+                                if prices[i] != prices[i-1] && prices[i] != prices[i+1] 
+                                {
+                                    price = prices[i].clone();
+                                }
+                            }
+                        else if i== prices.len()
+                            {
+                                if prices[i] != prices[i-1] 
+                                    {
+                                        price=prices[i].clone();
+                                    }
+                            }
+                        else 
+                            {
+                                price = 0;
+                            }
+                    }
+            }
+        self.close_price=price.clone();
+        price
     }
     pub fn find_winner(&mut self,price:Price){
         let winner = self.participants.iter().find_map(|(key, &val)| if val == price { Some(key.clone()) } else { None }).unwrap();

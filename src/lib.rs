@@ -1,10 +1,8 @@
 use near_sdk::*;
 use near_sdk::collections::*;
-use near_sdk::json_types::ValidAccountId;
 use near_sdk::{env, near_bindgen, AccountId, Balance, Promise};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use std::collections::HashMap;
-use std::convert::TryFrom;
 const TRANSFER_FEE:Balance=1_000_000_000_000_000_000_000;
 const MINT_FEE:Balance=1_000_000_000_000_000_000_000_000;
 const CREATE_AUCTION_FEE:Balance=5_000_000_000_000_000_000_000_000;
@@ -56,7 +54,7 @@ impl Contract{
     pub fn mint_nft(&mut self, _owner_id:AccountId, _token_data: TokenData)
     {
         
-        assert_eq!(env::attached_deposit(), MINT_FEE, "deposit < price");
+        assert_eq!(env::attached_deposit(), MINT_FEE, "deposit != MINT_FEE");
         // let hash_vec: Vec<u8>=_token_data.clone().secret_hash.unwrap().into();
         // assert_eq!(hash_vec,env::sha256(&_token_data.clone().secret.unwrap().as_bytes()),"Hash is not equal");
         
@@ -71,7 +69,8 @@ impl Contract{
         self.add_owner_id_token(&_owner_id,&token.token_id);
 
     }
-    pub fn transfer_nft(&mut self,_new_owner_id:ValidAccountId,_token_id:TokenId){
+    pub fn transfer_nft(&mut self,_new_owner_id:AccountId,_token_id:TokenId){
+        assert!(env::is_valid_account_id(_new_owner_id.as_bytes()),"Not valid account id");
         let sender = env::predecessor_account_id();
         if sender != self.owner_id && sender != self.token_by_id.get(&_token_id).unwrap().owner_id {
             env::panic("You Can Not Transfer This NFT".as_bytes());
@@ -89,8 +88,6 @@ impl Contract{
         assert_eq!(env::attached_deposit(), CREATE_AUCTION_FEE,"Need 5 N To Create An Auction");
         assert_eq!(env::predecessor_account_id(),self.token_by_id.get(&_token_id).unwrap().owner_id,"You Do Not Own This Token!");
         assert_eq!(self.is_token_auctioned(&_token_id),false,"This Token Already In An Auction");
-        env::log(env::predecessor_account_id().as_bytes());
-        env::log(self.token_by_id.get(&_token_id).unwrap().owner_id.as_bytes());
         self.commit_nft(&_token_id);
         self.auction_id+=1;
         let auction = Auction{
@@ -103,7 +100,8 @@ impl Contract{
             is_enabled:false,
             is_end:false,
             participants: HashMap::new(),
-            winner: AccountId::new()
+            winner: AccountId::new(), 
+            close_price: 0
         };
         self.auction_by_id.insert(&self.auction_id,&auction);
         self.token_id_auctioned.push(_token_id);
@@ -134,11 +132,18 @@ impl Contract{
           
     }
     pub fn get_auctions_by_owner(&self, _owner_id:AccountId) -> Vec<Auction>{
-        let mut auctions:Vec<Auction>=Vec::new();
+        let mut auctions:Vec<Auction> =Vec::new();
         for id in self.auction_id_by_owner.get(&_owner_id).unwrap(){
-            auctions.push(self.auction_by_id.get(&id).unwrap());
+            let mut auction = self.auction_by_id.get(&id).unwrap().clone();
+            auction.participants = HashMap::new();
+            auctions.push(auction);
         }
         auctions
+    }
+    pub fn get_auction_by_id(&self,_auction_id:AuctionId) -> Auction{
+        let mut auction = self.auction_by_id.get(&_auction_id).unwrap().clone();
+        auction.participants = HashMap::new();
+        auction
     }
     #[payable]
     pub fn commit_auction(&mut self, _auction_id:AuctionId){
@@ -146,7 +151,7 @@ impl Contract{
         assert!(env::attached_deposit()>0,"You Can Not Commit 0N");
         assert_eq!(self.auction_by_id.get(&_auction_id).unwrap().is_end,false,"This Auction Alredy Ends");
         assert_eq!(self.auction_by_id.get(&_auction_id).unwrap().is_enabled,true,"This Auction Does Not Begin");
-        assert!(auction.participants.contains_key(&env::predecessor_account_id()),"You Have Already Commited");
+        assert!(!auction.participants.contains_key(&env::predecessor_account_id()),"You Have Already Commited {}",env::predecessor_account_id());
         auction.participants.insert(env::predecessor_account_id(),env::attached_deposit());
         self.auction_by_id.insert(&_auction_id, &auction);
     }
@@ -155,22 +160,24 @@ impl Contract{
         let list_auction_id = self.auction_going_on.clone();
         for item in   list_auction_id {
             let endtime:u64= self.auction_by_id.get(&item).unwrap().auction_start_time+self.auction_by_id.get(&item).unwrap().auction_during_second*1_000_000_000;
-            env::log(endtime.to_string().as_bytes());
-            env::log(item.to_string().as_bytes());
+           
             let current_time = env::block_timestamp();
             if endtime <= current_time
             {
                 
                 let price = self.auction_by_id.get(&item).unwrap().calculate_the_single_lowest();
-                env::log(price.to_string().as_bytes());
+                
                 if price != 0 as Balance {
                     let mut auction = self.auction_by_id.get(&item).unwrap();
+                    auction.close_price = price.clone();
                     auction.find_winner(price);
-                    
+                    let mut msg = auction.winner.to_string().clone();
+                    msg.push_str(&price.to_string());
+                    env::log(msg.as_bytes());
                     auction.participants.remove(&auction.winner);
                     self.auction_by_id.insert(&item,&auction);
-                    self.transfer_nft(ValidAccountId::try_from(auction.winner).unwrap(),auction.id_token_auction);
-                    self.transfer_ft_to_seller(ValidAccountId::try_from(auction.owner_id).unwrap(),price);
+                    self.transfer_nft(auction.winner.clone(),auction.id_token_auction);
+                    self.transfer_ft_to_seller(auction.winner,price);
                 }
                 
                 
@@ -187,13 +194,19 @@ impl Contract{
         }
 
     }
-    fn transfer_ft_to_seller(&self,_owner_id:ValidAccountId,_auction_price:Balance){
+    fn transfer_ft_to_seller(&self,_owner_id:AccountId,_auction_price:Balance){
         let account = Promise::new(_owner_id.into());
         account.transfer(_auction_price);
     }
     pub fn close_auction(&mut self,_auction_id:AuctionId){
-        if env::predecessor_account_id()!=self.owner_id&&env::predecessor_account_id()!=self.auction_by_id.get(&_auction_id).unwrap().owner_id{
+        if env::predecessor_account_id() != self.owner_id && 
+        env::predecessor_account_id() != self.auction_by_id.get(&_auction_id).unwrap().owner_id
+        {
             env::panic("You Can Not Close This Auction".as_bytes());
+        }
+        if self.auction_by_id.get(&_auction_id).unwrap().is_enabled==true && 
+            env::predecessor_account_id()!=self.owner_id {
+            env::panic("You Can Not Close Auction After Start".as_bytes());
         }
         let mut auction = self.auction_by_id.get(&_auction_id).unwrap();
         auction.is_enabled=false;
@@ -259,8 +272,127 @@ impl Contract{
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    use super::*;
+    use near_sdk::{AccountId,Balance};
+    use near_sdk::MockedBlockchain;
+    use near_sdk::{testing_env, VMContext};
+    use nft::TokenData;
+    fn bob() -> AccountId {
+        "bob.testnet".to_string()
     }
+    fn senna() -> AccountId {
+        "senna.testnet".to_string()
+    }
+    fn alice() -> AccountId {
+        "alice.testnet".to_string()
+    }
+    fn carol() -> AccountId {
+        "carol.testnet".to_string()
+    }
+    fn smith() -> AccountId {
+        "smith.testnet".to_string()
+    }
+    fn john() -> AccountId {
+        "john.testnet".to_string()
+    }
+    fn nft(order: String) -> TokenData {
+        TokenData{
+            title: Some(order.clone()),
+            description: Some(order.clone()),
+            data: Some(order.clone()),
+            data_hash: Some(order.clone())
+            }
+    }
+
+    // part of writing unit tests is setting up a mock context
+    // this is a useful list to peek at when wondering what's available in env::*
+    fn get_context(_account_id: String, storage_usage: u64, block_timestamp: Timestamp,attached_deposit: Balance) -> VMContext {
+        VMContext {
+            current_account_id: _account_id.clone(),
+            signer_account_id: _account_id.clone(),
+            signer_account_pk: vec![0, 1, 2],
+            predecessor_account_id:_account_id,
+            input: vec![],
+            block_index: 0,
+            block_timestamp,
+            account_balance: 1_00_000_000_000_000_000_000_000_000,
+            account_locked_balance: 0,
+            storage_usage,
+            attached_deposit,
+            prepaid_gas: 10u64.pow(18),
+            random_seed: vec![0, 1, 2],
+            is_view: false,
+            output_data_receivers: vec![],
+            epoch_height: 19,
+        }
+    }
+    #[test]
+    fn test_mint_nft() {
+        let context = get_context(senna(), 0,0,MINT_FEE);
+        testing_env!(context);
+        let mut contract = Contract::new(senna());
+        contract.mint_nft(senna(),nft("first".to_string()));
+        contract.mint_nft(senna(),nft("second".to_string()));
+        testing_env!(get_context(bob(),env::storage_usage(),0,MINT_FEE));
+        contract.mint_nft(bob(),nft("third".to_string()));
+        assert_eq!(contract.token_by_owner.get(&senna()).unwrap(),vec![1,2],"");
+        assert_eq!(contract.token_by_owner.get(&bob()).unwrap(),vec![3],"");
+    }
+    #[test]
+    fn test_transfer_nft(){
+        let context = get_context(senna(),0, 0,MINT_FEE);
+        testing_env!(context);
+        let mut contract = Contract::new(senna());
+        contract.mint_nft(senna(),nft("first".to_string()));
+        contract.mint_nft(senna(),nft("second".to_string()));
+        contract.transfer_nft(bob(),2);
+        assert_eq!(contract.token_by_owner.get(&bob()).unwrap(),vec![2],"");
+        assert_eq!(contract.token_by_id.get(&2).unwrap().owner_id,bob(),"");
+    }
+    #[test]
+    fn test_create_close_auction(){
+        let context = get_context(senna(),0, 0,MINT_FEE);
+        testing_env!(context);
+        let mut contract = Contract::new(senna());
+        contract.mint_nft(bob(),nft("first".to_string()));
+        contract.mint_nft(bob(),nft("second".to_string()));
+        testing_env!(get_context(bob(),env::storage_usage(),0,CREATE_AUCTION_FEE));
+        contract.create_auction(2,60);
+        assert_eq!(contract.token_id_auctioned,vec![2],"");
+        assert_eq!(contract.auction_id_by_owner.get(&bob()).unwrap(),vec![1],"");
+        contract.close_auction(1);
+        assert_eq!(contract.token_id_auctioned,Vec::<TokenId>::new(),"");
+    }
+    #[test]
+    fn hold_auction(){
+        let s2ns = 1_000_000_000;
+        let context = get_context(senna(),0, 0,MINT_FEE);
+        testing_env!(context);
+        let mut contract = Contract::new(senna());
+        contract.mint_nft(bob(),nft("first".to_string()));
+        contract.mint_nft(bob(),nft("second".to_string()));
+        testing_env!(get_context(bob(),env::storage_usage(),0,CREATE_AUCTION_FEE));
+        contract.create_auction(2,60);
+        contract.start_auction(1);
+        assert_eq!(contract.get_auction_by_id(1).is_enabled,true,"");
+        testing_env!(get_context(alice(),env::storage_usage(),5*s2ns,5_000_000_000_000_000_000_000_000));
+        contract.commit_auction(1);
+        testing_env!(get_context(carol(),env::storage_usage(),10*s2ns,8_000_000_000_000_000_000_000_000));
+        contract.commit_auction(1);
+        testing_env!(get_context(john(),env::storage_usage(),20*s2ns,5_000_000_000_000_000_000_000_000));
+        contract.commit_auction(1);
+        testing_env!(get_context(smith(),env::storage_usage(),25*s2ns,6_000_000_000_000_000_000_000_000));
+        contract.commit_auction(1);
+        testing_env!(get_context(senna(),env::storage_usage(),30*s2ns,0));
+        contract.check_auctions();
+        assert_eq!(contract.get_auction_by_id(1).winner,String::new(),"");
+        testing_env!(get_context(senna(),env::storage_usage(),60*s2ns,0));
+        contract.check_auctions();
+
+        assert_eq!(contract.auction_by_id.get(&1).unwrap().close_price,6_000_000_000_000_000_000_000_000,"");
+        assert_eq!(contract.get_auction_by_id(1).winner,smith(),"");
+        assert_eq!(contract.get_token_by_id(2).owner_id,smith(),"");
+    }
+    
+    
 }
