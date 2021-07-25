@@ -266,10 +266,6 @@ impl Contract{
     
 }
 
-
-
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,6 +290,12 @@ mod tests {
     }
     fn john() -> AccountId {
         "john.testnet".to_string()
+    }
+    fn lili() -> AccountId {
+        "ili.testnet".to_string()
+    }
+    fn james() -> AccountId {
+        "james.testnet".to_string()
     }
     fn nft(order: String) -> TokenData {
         TokenData{
@@ -383,15 +385,59 @@ mod tests {
         contract.commit_auction(1);
         testing_env!(get_context(smith(),env::storage_usage(),25*s2ns,6_000_000_000_000_000_000_000_000));
         contract.commit_auction(1);
+        testing_env!(get_context(james(),env::storage_usage(),26*s2ns,9_000_000_000_000_000_000_000_000));
+        contract.commit_auction(1);
+        testing_env!(get_context(lili(),env::storage_usage(),27*s2ns,7_000_000_000_000_000_000_000_000));
+        contract.commit_auction(1);
         testing_env!(get_context(senna(),env::storage_usage(),30*s2ns,0));
         contract.check_auctions();
         assert_eq!(contract.get_auction_by_id(1).winner,String::new(),"");
         testing_env!(get_context(senna(),env::storage_usage(),60*s2ns,0));
         contract.check_auctions();
-
         assert_eq!(contract.auction_by_id.get(&1).unwrap().close_price,6_000_000_000_000_000_000_000_000,"");
         assert_eq!(contract.get_auction_by_id(1).winner,smith(),"");
         assert_eq!(contract.get_token_by_id(2).owner_id,smith(),"");
+    }
+    #[test]
+    fn cal_test(){
+        let  mut price:u32 = 0;
+        let mut prices:Vec<u32> = vec![5,8,5,6,9,7,10,5,9,6,12,13,9,11];
+        prices.sort();
+        if prices.len()==1
+            {
+                price = prices[0].clone();
+            }
+        else if prices[0]!=prices[1] 
+            {
+                price = prices[0].clone();
+            }
+        else
+            {
+                for i in 1..(prices.len() -1)  
+                    {
+                        if price == 0 {
+                        if i< (prices.len() -1)
+                            {
+                                if prices[i] != prices[i-1] && prices[i] != prices[i+1] 
+                                {
+                                    price = prices[i].clone();
+                                }
+                            }
+                        else if i== prices.len()
+                            {
+                                if prices[i] != prices[i-1] 
+                                    {
+                                        price=prices[i].clone();
+                                    }
+                            }
+                        else 
+                            {
+                                price = 0;
+                            }
+                        }
+                    }
+            }
+        assert_eq!(price,7,"");
     }
     
     

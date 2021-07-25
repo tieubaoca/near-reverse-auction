@@ -39,6 +39,8 @@ impl Auction {
             {
                 for i in 1..(prices.len() -1)  
                     {
+                        if price ==0 
+                        {
                         if i< (prices.len() -1)
                             {
                                 if prices[i] != prices[i-1] && prices[i] != prices[i+1] 
@@ -57,9 +59,9 @@ impl Auction {
                             {
                                 price = 0;
                             }
+                        }
                     }
             }
-        self.close_price=price.clone();
         price
     }
     pub fn find_winner(&mut self,price:Price){
