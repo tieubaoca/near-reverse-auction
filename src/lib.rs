@@ -177,7 +177,7 @@ impl Contract{
                     auction.participants.remove(&auction.winner);
                     self.auction_by_id.insert(&item,&auction);
                     self.transfer_nft(auction.winner.clone(),auction.id_token_auction);
-                    self.transfer_ft_to_seller(auction.winner,price);
+                    self.transfer_ft_to_seller(auction.owner_id,price);
                 }
                 
                 
