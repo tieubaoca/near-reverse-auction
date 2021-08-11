@@ -32,6 +32,9 @@ near_contract_standards::impl_non_fungible_token_enumeration!(Contract, nft_cont
 
 #[derive(BorshSerialize, BorshStorageKey)]
 enum StorageKey {
+    AuctionId,
+    AccountId,
+
     NonFungibleToken,
     TokenMetadata,
     Enumeration,
@@ -52,8 +55,8 @@ impl Contract{
                 Some(StorageKey::Approval),
             ),
             auction_id:0,
-            auction_by_id:UnorderedMap::new(b"auction_by_id".to_vec()),
-            auction_id_by_owner:UnorderedMap::new(b"auction_id_by_owner".to_vec()),
+            auction_by_id:UnorderedMap::new(StorageKey::AuctionId),
+            auction_id_by_owner:UnorderedMap::new(StorageKey::AccountId),
             auction_going_on: Vec::new(),
             token_id_auctioned:Vec::new()
         }
